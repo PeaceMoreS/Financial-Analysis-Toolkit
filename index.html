@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Financial Analysis Toolkit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --color-background: var(--color-cream-50, #FCFCF9);
+            --color-surface: var(--color-cream-100, #FFFFFD);
+            --color-text: var(--color-slate-900, #13343B);
+            --color-text-secondary: var(--color-slate-500, #626C71);
+            --color-primary: var(--color-teal-500, #21808D);
+            --color-primary-hover: var(--color-teal-600, #1D7480);
+            --color-border: rgba(94,82,64,0.2);
+            --radius-base: 8px;
+            --radius-md: 10px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+            --font-family-base: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --space-8: 8px;
+            --space-12: 12px;
+            --space-16: 16px;
+            --space-24: 24px;
+        }
+        html, body {
+            font-family: var(--font-family-base);
+            background: var(--color-background);
+            color: var(--color-text);
+            margin: 0;
+            padding: 0;
+        }
+        h1 {
+            font-size: 2rem;
+            color: var(--color-primary);
+            margin-bottom: var(--space-16);
+        }
+        .container {
+            max-width: 800px;
+            margin: 32px auto 0 auto;
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            padding: var(--space-24);
+        }
+        .section {
+            margin-bottom: var(--space-24);
+        }
+        label {
+            display: block;
+            margin-bottom: var(--space-8);
+            color: var(--color-text-secondary);
+        }
+        input[type="file"],
+        select,
+        button {
+            font-size: 1rem;
+            padding: var(--space-8) var(--space-12);
+            margin-bottom: var(--space-8);
+            border-radius: var(--radius-base);
+        }
+        input[type="file"],
+        select {
+            border: 1px solid var(--color-border);
+            background: var(--color-background);
+            color: var(--color-text);
+        }
+        button {
+            background: var(--color-primary);
+            color: white;
+            border: none;
+            transition: background 0.2s;
+            cursor: pointer;
+            margin-left: 4px;
+        }
+        button:hover {
+            background: var(--color-primary-hover);
+        }
+        .file-info {
+            font-size: 0.95rem;
+            color: var(--color-text-secondary);
+            margin-bottom: var(--space-8);
+        }
+        .results {
+            margin-top: var(--space-24);
+        }
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: var(--space-16);
+        }
+        .summary-table th, .summary-table td {
+            padding: var(--space-8);
+            border: 1px solid var(--color-border);
+            text-align: left;
+        }
+        .summary-table th {
+            background: var(--color-background);
+            color: var(--color-primary);
+        }
+        .visualization {
+            margin-top: var(--space-24);
+            background: #fff;
+            padding: var(--space-16);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--color-border);
+            overflow: auto;
+        }
+        .error {
+            color: #c0152f;
+            font-weight: 500;
+        }
+        @media (max-width:700px) {
+            .container {
+                padding: var(--space-12);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Financial Analysis Toolkit</h1>
+        <div class="section">
+            <label for="datafile">1. Upload Financial Data (CSV):</label>
+            <input type="file" id="datafile" accept=".csv,.txt" />
+            <div class="file-info" id="fileInfo"></div>
+            <div class="error" id="errorMsg"></div>
+        </div>
+        <div class="section" id="selectSection" style="display:none;">
+            <label for="analysisType">2. Select Analysis Type:</label>
+            <select id="analysisType">
+                <option value="summary">Summary Statistics</option>
+                <option value="growth">Year-over-Year Growth</option>
+                <option value="sma">Moving Average</option>
+                <option value="ratios">Key Financial Ratios</option>
+                <option value="custom">Custom Column Analysis</option>
+            </select>
+            <button id="analyzeBtn">Analyze</button>
+            <div class="file-info" id="columnSelectorArea"></div>
+        </div>
+        <div id="results" class="results"></div>
+        <div id="visualization" class="visualization"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script>
+    // Utility functions
+    function isNumeric(val) {
+        return !isNaN(parseFloat(val)) && isFinite(val);
+    }
+    function removeEmptyRows(data) {
+        return data.filter(row => Object.values(row).some(v => v && v.trim() !== ""));
+    }
+    function extractNumericColumns(data) {
+        if (!data.length) return [];
+        const colNames = Object.keys(data[0]);
+        return colNames.filter(col => data.some(row => isNumeric(row[col])));
+    }
+    // App state
+    let parsedData = [];
+    let numericColumns = [];
+    let selectedColumns = [];
+
+    // Elements
+    const datafile = document.getElementById('datafile');
+    const fileInfo = document.getElementById('fileInfo');
+    const errorMsg = document.getElementById('errorMsg');
+    const selectSection = document.getElementById('selectSection');
+    const analysisType = document.getElementById('analysisType');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const columnSelectorArea = document.getElementById('columnSelectorArea');
+    const results = document.getElementById('results');
+    const visualization = document.getElementById('visualization');
+
+    datafile.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        errorMsg.textContent = "";
+        results.innerHTML = "";
+        visualization.innerHTML = "";
+        if (!file) {
+            fileInfo.textContent = '';
+            selectSection.style.display = 'none';
+            return;
+        }
+        fileInfo.textContent = `Loaded: ${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: function(res) {
+                if (!res || !res.data || res.data.length === 0) {
+                    errorMsg.textContent = "Parsing error: No data found.";
+                    selectSection.style.display = 'none';
+                    return;
+                }
+                parsedData = removeEmptyRows(res.data);
+                numericColumns = extractNumericColumns(parsedData);
+                if (numericColumns.length === 0) {
+                    errorMsg.textContent = "No numeric columns found for analysis.";
+                    selectSection.style.display = 'none';
+                } else {
+                    populateColumnSelector();
+                    selectSection.style.display = '';
+                    errorMsg.textContent = "";
+                }
+            },
+            error: function(err) {
+                errorMsg.textContent = "Error parsing file: " + (err.message || "Unknown error");
+                selectSection.style.display = 'none';
+            }
+        });
+    });
+
+    analysisType.addEventListener('change', populateColumnSelector);
+
+    function populateColumnSelector() {
+        columnSelectorArea.innerHTML = "";
+        if (analysisType.value === "sma" || analysisType.value === "custom") {
+            const selector = document.createElement('select');
+            selector.multiple = false;
+            selector.id = "columnSelector";
+            numericColumns.forEach(col => {
+                const opt = document.createElement('option');
+                opt.value = col;
+                opt.textContent = col;
+                selector.appendChild(opt);
+            });
+            columnSelectorArea.appendChild(document.createTextNode('Select column: '));
+            columnSelectorArea.appendChild(selector);
+
+            if (analysisType.value === "sma") {
+                const winLabel = document.createElement('label');
+                winLabel.textContent = "Moving Average Window:";
+                winLabel.style.marginLeft = "8px";
+                const winInput = document.createElement('input');
+                winInput.type = "number";
+                winInput.min = 2;
+                winInput.value = 3;
+                winInput.id = "maWindow";
+                winInput.style.width = "62px";
+                winInput.style.marginLeft = "4px";
+                winInput.style.display = "inline-block";
+                columnSelectorArea.appendChild(winLabel);
+                columnSelectorArea.appendChild(winInput);
+            }
+        } else if (analysisType.value === "ratios") {
+            // List simple demonstration ratio options
+            // e.g. Current Ratio = Current Assets / Current Liabilities
+            columnSelectorArea.innerHTML = "Calculates common ratios (Current, Quick, Debt/Equity, etc.) from available columns.";
+        } else if (analysisType.value === "growth") {
+            columnSelectorArea.innerHTML = "Calculates year-over-year percentage growth for all numeric columns assuming a time-based row order (e.g., annual).";
+        }
+    }
+
+    analyzeBtn.addEventListener('click', runAnalysis);
+
+    function runAnalysis() {
+        results.innerHTML = "";
+        visualization.innerHTML = "";
+        if (!parsedData.length) {
+            results.innerHTML = "<span class='error'>No data loaded.</span>";
+            return;
+        }
+        if (analysisType.value === "summary") {
+            showSummaryStats(parsedData, numericColumns);
+        } else if (analysisType.value === "growth") {
+            showYoYGrowth(parsedData, numericColumns);
+        } else if (analysisType.value === "sma") {
+            const colSel = document.getElementById('columnSelector');
+            const maWin = +document.getElementById('maWindow').value || 3;
+            if (!colSel || !colSel.value) {
+                results.innerHTML = "<span class='error'>Select a column for moving average.</span>";
+                return;
+            }
+            showMovingAverage(parsedData, colSel.value, maWin);
+        } else if (analysisType.value === "ratios") {
+            showKeyRatios(parsedData);
+        } else if (analysisType.value === "custom") {
+            const colSel = document.getElementById('columnSelector');
+            if (!colSel || !colSel.value) {
+                results.innerHTML = "<span class='error'>Select a column for analysis.</span>";
+                return;
+            }
+            showCustomColumn(parsedData, colSel.value);
+        }
+    }
+
+    function showSummaryStats(data, cols) {
+        let html = "<h3>Summary Statistics</h3>";
+        html += "<table class='summary-table'><thead><tr><th>Column</th><th>Mean</th><th>Median</th><th>Std Dev</th><th>Min</th><th>Max</th></tr></thead><tbody>";
+        for (const col of cols) {
+            const vals = data.map(r=>parseFloat(r[col])).filter(isNumeric);
+            if (!vals.length) continue;
+            const mean = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(3);
+            const sorted = vals.slice().sort((a,b)=>a-b);
+            const median = sorted.length%2===1 ? sorted[(sorted.length-1)/2] : ((sorted[sorted.length/2-1]+sorted[sorted.length/2])/2).toFixed(3);
+            const min = Math.min(...vals);
+            const max = Math.max(...vals);
+            const std = stdDev(vals).toFixed(3);
+            html += `<tr>
+                <td>${col}</td>
+                <td>${mean}</td>
+                <td>${median}</td>
+                <td>${std}</td>
+                <td>${min}</td>
+                <td>${max}</td>
+            </tr>`;
+        }
+        html += "</tbody></table>";
+        results.innerHTML = html;
+        visualization.innerHTML = ""; // Optionally add histograms here later
+    }
+
+    function stdDev(arr) {
+        if (arr.length < 2) return 0;
+        const mean = arr.reduce((a,b)=>a+b,0) / arr.length;
+        return Math.sqrt(arr.reduce((a,b)=>a+(b-mean)**2,0) / (arr.length-1));
+    }
+
+    function showYoYGrowth(data, cols) {
+        let html = "<h3>Year-over-Year Growth (%)</h3>";
+        html += "<table class='summary-table'><thead><tr><th>Year</th>";
+        for (const col of cols) html += `<th>${col}</th>`;
+        html += "</tr></thead><tbody>";
+        // Try to guess a 'Year' column, otherwise use Row #
+        let yearKeys = Object.keys(data[0]).filter(key => key.match(/year|date/i));
+        let yearCol = yearKeys.length ? yearKeys[0] : null;
+        for (let i = 1; i < data.length; ++i) {
+            html += "<tr>";
+            html += `<td>${yearCol ? data[i][yearCol]:i+1}</td>`;
+            for (const col of cols) {
+                const prev = parseFloat(data[i-1][col]);
+                const curr = parseFloat(data[i][col]);
+                if (isNumeric(prev) && isNumeric(curr) && prev !== 0) {
+                    const growth = (((curr-prev)/Math.abs(prev))*100).toFixed(2);
+                    html += `<td>${growth}</td>`;
+                } else {
+                    html += "<td>-</td>";
+                }
+            }
+            html += "</tr>";
+        }
+        html += "</tbody></table>";
+        results.innerHTML = html;
+        visualization.innerHTML = "";
+    }
+
+    function showMovingAverage(data, col, win) {
+        let html = `<h3>Moving Average (${col}, window=${win})</h3>`;
+        let vals = data.map(r=>parseFloat(r[col])).filter(isNumeric);
+        if (vals.length < win) {
+            results.innerHTML = "<span class='error'>Not enough data points for selected window size.</span>";
+            return;
+        }
+        let ma = [];
+        for (let i=0; i<=vals.length-win; ++i) {
+            ma.push((vals.slice(i, i+win).reduce((a,b)=>a+b,0)/win).toFixed(3));
+        }
+        html += "<table class='summary-table'><thead><tr><th>Start Row</th><th>Moving Average</th></tr></thead><tbody>";
+        for (let i=0; i<ma.length; ++i) {
+            html += `<tr><td>${i+1}</td><td>${ma[i]}</td></tr>`;
+        }
+        html += "</tbody></table>";
+        results.innerHTML = html;
+        visualizeLineChart(vals, ma, col, win);
+    }
+
+    function showKeyRatios(data) {
+        // Look for columns that match
+        // Current Ratio: Current Assets / Current Liabilities
+        // Debt/Equity: Total Debt / Total Equity
+        const lowerCols = Object.fromEntries(Object.keys(data[0]).map(k=>[k.toLowerCase(),k]));
+        let html = "<h3>Key Financial Ratios</h3><table class='summary-table'><thead><tr><th>Ratio</th><th>Value</th></tr></thead><tbody>";
+        // Use first row for point-in-time ratios
+        let row = data[0];
+        // Current Ratio
+        if (lowerCols["current assets"] && lowerCols["current liabilities"]) {
+            let ca = parseFloat(row[lowerCols["current assets"]]), cl = parseFloat(row[lowerCols["current liabilities"]]);
+            html += `<tr><td>Current Ratio</td><td>${isNumeric(ca)&&isNumeric(cl)&&cl!==0?(ca/cl).toFixed(3):"-"}</td></tr>`;
+        }
+        // Quick Ratio (optional: if Inventories)
+        if (lowerCols["current assets"] && lowerCols["inventories"] && lowerCols["current liabilities"]) {
+            let ca = parseFloat(row[lowerCols["current assets"]]), inv=parseFloat(row[lowerCols["inventories"]]), cl = parseFloat(row[lowerCols["current liabilities"]]);
+            html += `<tr><td>Quick Ratio</td><td>${(isNumeric(ca)&&isNumeric(inv)&&isNumeric(cl)&&cl!==0?((ca-inv)/cl).toFixed(3):"-")}</td></tr>`;
+        }
+        // Debt/Equity
+        if (lowerCols["total debt"] && lowerCols["total equity"]) {
+            let d = parseFloat(row[lowerCols["total debt"]]), e = parseFloat(row[lowerCols["total equity"]]);
+            html += `<tr><td>Debt/Equity Ratio</td><td>${isNumeric(d)&&isNumeric(e)&&e!==0?(d/e).toFixed(3):"-"}</td></tr>`;
+        }
+        // Net Margin: Net Income / Revenue
+        if (lowerCols["net income"] && lowerCols["revenue"]) {
+            let ni = parseFloat(row[lowerCols["net income"]]), rev = parseFloat(row[lowerCols["revenue"]]);
+            html += `<tr><td>Net Margin (%)</td><td>${isNumeric(ni)&&isNumeric(rev)&&rev!==0?((ni/rev)*100).toFixed(2):"-"}</td></tr>`;
+        }
+        html += "</tbody></table>";
+        results.innerHTML = html;
+        visualization.innerHTML = "";
+    }
+
+    function showCustomColumn(data, col) {
+        let html = `<h3>Custom Analysis: ${col}</h3>`;
+        let vals = data.map(r=>parseFloat(r[col])).filter(isNumeric);
+        if (!vals.length) {
+            results.innerHTML = "<span class='error'>No data found for selected column.</span>";
+            return;
+        }
+        const mean = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(3);
+        const min = Math.min(...vals);
+        const max = Math.max(...vals);
+        html += "<ul>";
+        html += `<li>Mean: ${mean}</li>`;
+        html += `<li>Min: ${min}</li>`;
+        html += `<li>Max: ${max}</li>`;
+        html += `<li>Standard Deviation: ${stdDev(vals).toFixed(3)}</li>`;
+        html += "</ul>";
+        results.innerHTML = html;
+        visualizeLineChart(vals, [], col, 0);
+    }
+
+    function visualizeLineChart(raw, overlay, col, win) {
+        // Simple SVG chart, raw = original, overlay = moving average or custom line
+        let width = 650, height = 260, pad=42;
+        let vals = raw;
+        const maxVal = Math.max(...vals.concat(overlay||[])), minVal = Math.min(...vals.concat(overlay||[]));
+        let scaleY = y=>pad + (height-2*pad) - ((y-minVal) / (maxVal - minVal + 1e-9)) * (height-2*pad);
+        let scaleX = (i,N)=>pad + ((width-2*pad)*(i/(N-1||1)));
+        let svg = `<svg width="${width}" height="${height}" style="background:var(--color-bg-1,#f4f7fa);border-radius:8px;border:1px solid var(--color-border);"><g>`;
+        // Axes
+        svg += `<text x="${pad-25}" y="${pad-8}" font-size="12" fill="#888">${maxVal.toFixed(2)}</text>`;
+        svg += `<text x="${pad-25}" y="${height-pad+6}" font-size="12" fill="#888">${minVal.toFixed(2)}</text>`;
+        svg += `<line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height-pad}" stroke="#aaa"/>`;
+        svg += `<line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="#aaa"/>`;
+
+        // Line for raw
+        if (vals.length > 1) {
+            svg += `<polyline fill="none" stroke="#21808d" stroke-width="2" points="`;
+            vals.forEach((v,i)=>svg+=`${scaleX(i,vals.length)},${scaleY(v)} `);
+            svg += `"/>`;
+        }
+        // Overlay line if provided
+        if (overlay && overlay.length > 1) {
+            svg += `<polyline fill="none" stroke="#f58736" stroke-width="2" points="`;
+            overlay.forEach((v,i)=>svg+=`${scaleX(i+win-1,vals.length)},${scaleY(v)} `);
+            svg += `"/>`;
+        }
+        // Dots
+        svg += `<g>`;
+        vals.forEach((v,i)=>{
+            svg += `<circle cx="${scaleX(i,vals.length)}" cy="${scaleY(v)}" r="2" fill="#21808d"><title>Row ${i+1}: ${v}</title></circle>`;
+        });
+        svg += "</g>";
+        // Legend
+        svg += `<rect x="${width-190}" y="${height-pad+8}" width="180" height="36" rx="8" fill="#fff" stroke="#d1dee3" />
+        <circle cx="${width-175}" cy="${height-pad+22}" r="5" fill="#21808d"/><text x="${width-165}" y="${height-pad+26}" fill="#21808d" font-size="13">${col}</text>`;
+        if (overlay && overlay.length) {
+            svg += `<circle cx="${width-105}" cy="${height-pad+22}" r="5" fill="#f58736"/><text x="${width-95}" y="${height-pad+26}" fill="#f58736" font-size="13">Moving Avg</text>`;
+        }
+        svg += "</g></svg>";
+        visualization.innerHTML = svg;
+    }
+    </script>
+</body>
+</html>
