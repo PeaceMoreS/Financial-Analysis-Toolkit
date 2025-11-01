@@ -194,8 +194,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📧 Contact
 
-Questions or suggestions? Open an issue on GitHub!
+Questions or suggestions? Open an issue on GitHub! 
+
+Reach out at mwajlatif@gmail.com to work on this project
 
 ---
 
-**Made with ❤️ for financial analysis enthusiasts**
+**Made with ❤️ for Financial analysis & Business enthusiasts**
